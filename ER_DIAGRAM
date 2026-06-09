@@ -1,0 +1,46 @@
++----------------+       1        M       +----------------------+
+|     USERS      |------------------------|   TRAFFIC_SIGNALS    |
++----------------+                        +----------------------+
+| PK user_id     |                        | PK signal_id         |
+| name           |                        | signal_location      |
+| email          |                        | signal_status        |
+| password       |                        | signal_timing        |
+| role           |                        +----------------------+
++----------------+                                   |
+                                                     | 1
+                                                     |
+                                                     | M
+                                        +--------------------------+
+                                        |      TRAFFIC_DATA        |
+                                        +--------------------------+
+                                        | PK data_id               |
+                                        | FK signal_id             |
+                                        | vehicle_count            |
+                                        | congestion_level         |
+                                        | average_speed            |
+                                        | timestamp                |
+                                        +--------------------------+
+                                                     |
+                                                     | 1
+                                                     |
+                                                     | M
+                                        +--------------------------+
+                                        |         ALERTS           |
+                                        +--------------------------+
+                                        | PK alert_id              |
+                                        | FK data_id               |
+                                        | alert_type               |
+                                        | description              |
+                                        | status                   |
+                                        | timestamp                |
+                                        +--------------------------+
+
++----------------+       1        M       +--------------------------+
+|   ACCIDENTS    |------------------------|         ALERTS           |
++----------------+                        +--------------------------+
+| PK accident_id |                        | PK alert_id              |
+| location       |                        | FK data_id               |
+| severity       |                        | alert_type               |
+| accident_time  |                        | status                   |
+| description    |                        | timestamp                |
++----------------+                        +--------------------------+
