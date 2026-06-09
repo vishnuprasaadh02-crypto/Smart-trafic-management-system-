@@ -1,0 +1,30 @@
++------------------------------------------+
+                         | Smart Traffic Management System          |
+                         +------------------------------------------+
+
+      Admin
+        |
+        |-----------------------> Login
+        |-----------------------> Manage Users
+        |-----------------------> View Traffic Reports
+        |
+        |
+Traffic Operator
+        |
+        |-----------------------> Monitor Traffic
+        |-----------------------> Manage Traffic Signals
+        |-----------------------> Detect Accidents
+        |-----------------------> Generate Alerts
+        |-----------------------> View Analytics
+        |
+        |
+Citizen
+        |
+        |-----------------------> View Traffic Updates
+        |-----------------------> Receive Notifications
+        |-----------------------> View Alternative Routes
+        |
+        |
+Emergency Vehicle
+        |
+        |-----------------------> Request Signal Priority
