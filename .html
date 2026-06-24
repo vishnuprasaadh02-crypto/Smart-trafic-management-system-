@@ -1,486 +1,273 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STMS — Smart Traffic Management System | Command Center</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<style>
-  :root{
-    --bg:#0A0F1C;
-    --panel:#10182B;
-    --panel-2:#141E36;
-    --line:#23304D;
-    --text:#E7ECF7;
-    --muted:#8B97B5;
-    --green:#2ECC71;
-    --amber:#FFB020;
-    --red:#FF4D5E;
-    --blue:#3DA8F5;
-    --violet:#9B7BFF;
-    --radius:14px;
-    --mono:'JetBrains Mono', monospace;
-    --disp:'Space Grotesk', sans-serif;
-    --body:'Inter', sans-serif;
-  }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  body{
-    background:
-      radial-gradient(circle at 12% 8%, rgba(61,168,245,0.08), transparent 40%),
-      radial-gradient(circle at 90% 90%, rgba(46,204,113,0.06), transparent 45%),
-      var(--bg);
-    color:var(--text);
-    font-family:var(--body);
-    min-height:100vh;
-  }
-  ::-webkit-scrollbar{width:8px; height:8px;}
-  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:8px;}
-
-  a{color:inherit; text-decoration:none;}
-
-  /* ===== Top bar ===== */
-  .topbar{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:14px 24px; border-bottom:1px solid var(--line);
-    background:rgba(16,24,43,0.85); backdrop-filter:blur(8px);
-    position:sticky; top:0; z-index:50;
-  }
-  .brand{display:flex; align-items:center; gap:12px;}
-  .brand-mark{
-    width:38px; height:38px; border-radius:10px;
-    background:conic-gradient(from 180deg, var(--green), var(--amber), var(--red), var(--green));
-    display:flex; align-items:center; justify-content:center; font-family:var(--disp); font-weight:700; font-size:13px;
-    box-shadow:0 0 18px rgba(46,204,113,0.35);
-  }
-  .brand-mark span{background:var(--bg); width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;}
-  .brand-title{font-family:var(--disp); font-weight:700; font-size:18px; letter-spacing:0.2px;}
-  .brand-sub{font-size:11px; color:var(--muted); font-family:var(--mono); letter-spacing:0.5px;}
-  .top-right{display:flex; align-items:center; gap:22px;}
-  .clock{font-family:var(--mono); font-size:14px; color:var(--blue);}
-  .city-pill{
-    font-family:var(--mono); font-size:12px; background:var(--panel-2); border:1px solid var(--line);
-    padding:6px 12px; border-radius:20px; color:var(--muted);
-  }
-  .status-live{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--green); font-family:var(--mono);}
-  .dot-pulse{width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 0 0 rgba(46,204,113,0.6); animation:pulse 1.6s infinite;}
-  @keyframes pulse{
-    0%{box-shadow:0 0 0 0 rgba(46,204,113,0.55);}
-    70%{box-shadow:0 0 0 8px rgba(46,204,113,0);}
-    100%{box-shadow:0 0 0 0 rgba(46,204,113,0);}
-  }
-
-  /* ===== Ticker ===== */
-  .ticker-wrap{
-    background:linear-gradient(90deg, rgba(255,77,94,0.12), rgba(255,176,32,0.08));
-    border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; padding:7px 0;
-  }
-  .ticker{display:inline-block; padding-left:100%; animation:ticker 26s linear infinite; font-family:var(--mono); font-size:12.5px; color:var(--amber);}
-  .ticker b{color:var(--red);}
-  @keyframes ticker{0%{transform:translateX(0);} 100%{transform:translateX(-100%);}}
-
-  /* ===== Layout ===== */
-  .layout{display:grid; grid-template-columns:230px 1fr; min-height:calc(100vh - 90px);}
-  .sidebar{
-    border-right:1px solid var(--line); padding:18px 12px; display:flex; flex-direction:column; gap:4px;
-    background:rgba(16,24,43,0.5);
-  }
-  .nav-item{
-    display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; font-size:13.5px; color:var(--muted); font-weight:500; cursor:pointer;
-  }
-  .nav-item.active{background:var(--panel-2); color:var(--text); border:1px solid var(--line);}
-  .nav-item:hover{color:var(--text);}
-  .nav-icon{width:18px; text-align:center; opacity:0.85;}
-  .sidebar-foot{margin-top:auto; font-size:11px; color:var(--muted); font-family:var(--mono); padding:10px 14px; border-top:1px solid var(--line); margin-top:12px;}
-
-  .main{padding:22px 24px 60px; overflow-x:hidden;}
-  .section-title{font-family:var(--disp); font-size:15px; font-weight:700; margin:28px 0 14px; display:flex; align-items:center; gap:10px;}
-  .section-title .num{font-family:var(--mono); color:var(--blue); font-size:12px; border:1px solid var(--line); padding:2px 8px; border-radius:6px;}
-
-  /* ===== KPI cards ===== */
-  .kpi-grid{display:grid; grid-template-columns:repeat(6,1fr); gap:14px;}
-  .kpi{
-    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px;
-    position:relative; overflow:hidden;
-  }
-  .kpi::after{content:""; position:absolute; right:-20px; top:-20px; width:70px; height:70px; border-radius:50%; background:radial-gradient(circle, var(--kc,var(--blue)) 0%, transparent 70%); opacity:0.25;}
-  .kpi-label{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px;}
-  .kpi-value{font-family:var(--mono); font-size:24px; font-weight:700;}
-  .kpi-delta{font-size:11px; margin-top:6px; color:var(--green);}
-  .kpi-delta.down{color:var(--red);}
-
-  /* ===== Grid panels ===== */
-  .grid2{display:grid; grid-template-columns:1.4fr 1fr; gap:16px;}
-  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
-  .panel{
-    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px;
-  }
-  .panel-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
-  .panel-title{font-weight:600; font-size:14px;}
-  .panel-tag{font-family:var(--mono); font-size:10.5px; color:var(--muted); border:1px solid var(--line); padding:3px 8px; border-radius:6px;}
-
-  #map{height:360px; border-radius:10px; overflow:hidden; border:1px solid var(--line);}
-
-  /* Signal cards */
-  .signal-list{display:flex; flex-direction:column; gap:12px; max-height:360px; overflow-y:auto;}
-  .signal-card{
-    display:flex; align-items:center; gap:14px; background:var(--panel-2); border:1px solid var(--line);
-    border-radius:10px; padding:12px 14px;
-  }
-  .light-housing{display:flex; flex-direction:column; gap:4px; background:#060A14; padding:6px; border-radius:8px;}
-  .bulb{width:11px; height:11px; border-radius:50%; background:#222a3d;}
-  .bulb.on.red{background:var(--red); box-shadow:0 0 10px var(--red);}
-  .bulb.on.amber{background:var(--amber); box-shadow:0 0 10px var(--amber);}
-  .bulb.on.green{background:var(--green); box-shadow:0 0 10px var(--green);}
-  .signal-info{flex:1;}
-  .signal-name{font-weight:600; font-size:13px;}
-  .signal-meta{font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:3px;}
-  .signal-timer{font-family:var(--mono); font-size:18px; font-weight:700; min-width:46px; text-align:right;}
-  .ai-badge{font-size:9.5px; background:rgba(61,168,245,0.15); color:var(--blue); border:1px solid rgba(61,168,245,0.4); padding:2px 6px; border-radius:5px; margin-left:6px;}
-
-  /* Emergency */
-  .emergency-banner{
-    border:1px solid rgba(255,77,94,0.5); background:rgba(255,77,94,0.08); border-radius:12px; padding:14px 16px;
-    display:flex; align-items:center; gap:14px; margin-bottom:14px;
-  }
-  .emergency-banner .pin{width:38px; height:38px; border-radius:50%; background:rgba(255,77,94,0.18); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;}
-  .emergency-banner h4{font-size:13.5px; margin-bottom:3px;}
-  .emergency-banner p{font-size:11.5px; color:var(--muted); font-family:var(--mono);}
-  .route-progress{height:6px; border-radius:4px; background:var(--line); margin-top:8px; overflow:hidden;}
-  .route-progress > div{height:100%; background:linear-gradient(90deg, var(--red), var(--amber)); width:42%; border-radius:4px;}
-
-  /* Parking */
-  .lot-card{background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:12px;}
-  .lot-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
-  .lot-head h5{font-size:13px;}
-  .lot-avail{font-family:var(--mono); font-size:12px; color:var(--green);}
-  .slot-grid{display:grid; grid-template-columns:repeat(10,1fr); gap:4px;}
-  .slot{aspect-ratio:1; border-radius:3px; background:var(--green); opacity:0.85;}
-  .slot.occ{background:var(--red); opacity:0.6;}
-
-  /* Violations table */
-  table{width:100%; border-collapse:collapse; font-size:12.5px;}
-  th{text-align:left; color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; padding:8px 10px; border-bottom:1px solid var(--line);}
-  td{padding:10px; border-bottom:1px solid var(--line); font-family:var(--mono);}
-  tr:last-child td{border-bottom:none;}
-  .badge{padding:3px 9px; border-radius:6px; font-size:10.5px; font-family:var(--body); font-weight:600;}
-  .badge.red{background:rgba(255,77,94,0.15); color:var(--red);}
-  .badge.amber{background:rgba(255,176,32,0.15); color:var(--amber);}
-  .badge.violet{background:rgba(155,123,255,0.15); color:var(--violet);}
-
-  /* AQI gauge */
-  .aqi-row{display:flex; align-items:center; gap:18px;}
-  .gauge{width:110px; height:110px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; flex-shrink:0;
-    background:conic-gradient(var(--green) 0deg 120deg, var(--amber) 120deg 230deg, var(--red) 230deg 360deg);}
-  .gauge::before{content:""; position:absolute; width:80px; height:80px; border-radius:50%; background:var(--panel);}
-  .gauge-val{position:relative; font-family:var(--mono); font-weight:700; font-size:20px;}
-  .aqi-list{flex:1; display:flex; flex-direction:column; gap:8px;}
-  .aqi-item{display:flex; justify-content:space-between; font-size:12px; font-family:var(--mono); color:var(--muted);}
-  .aqi-item b{color:var(--text);}
-
-  canvas{max-width:100%;}
-
-  footer{text-align:center; padding:24px; color:var(--muted); font-size:11.5px; font-family:var(--mono); border-top:1px solid var(--line); margin-top:30px;}
-
-  @media (max-width:1100px){
-    .kpi-grid{grid-template-columns:repeat(3,1fr);}
-    .grid2, .grid3{grid-template-columns:1fr;}
-  }
-  @media (max-width:720px){
-    .layout{grid-template-columns:1fr;}
-    .sidebar{display:none;}
-    .kpi-grid{grid-template-columns:repeat(2,1fr);}
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Traffic Management System</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand">
-    <div class="brand-mark"><span>🚦</span></div>
-    <div>
-      <div class="brand-title">STMS Command Center</div>
-      <div class="brand-sub">SMART TRAFFIC MANAGEMENT SYSTEM</div>
-    </div>
-  </div>
-  <div class="top-right">
-    <div class="status-live"><div class="dot-pulse"></div> LIVE FEED ACTIVE</div>
-    <div class="city-pill" id="cityPill">📍 Mayiladuthurai City Grid</div>
-    <div class="clock" id="clock">--:--:--</div>
-  </div>
-</div>
-
-<div class="ticker-wrap">
-  <div class="ticker" id="tickerText">Loading live alerts…</div>
-</div>
-
-<div class="layout">
-  <div class="sidebar">
-    <div class="nav-item active"><span class="nav-icon">▣</span> Dashboard</div>
-    <div class="nav-item"><span class="nav-icon">🚦</span> Signal Control</div>
-    <div class="nav-item"><span class="nav-icon">🚑</span> Emergency Priority</div>
-    <div class="nav-item"><span class="nav-icon">⚠️</span> Accident Alerts</div>
-    <div class="nav-item"><span class="nav-icon">🅿️</span> Smart Parking</div>
-    <div class="nav-item"><span class="nav-icon">📷</span> Violations (ANPR)</div>
-    <div class="nav-item"><span class="nav-icon">🌫️</span> Pollution Monitor</div>
-    <div class="nav-item"><span class="nav-icon">📈</span> Congestion Forecast</div>
-    <div class="nav-item"><span class="nav-icon">⚙️</span> Settings</div>
-    <div class="sidebar-foot">Backend: Flask REST API<br>DB: MongoDB Atlas + Redis<br>Build v1.0 — Final Year Project</div>
-  </div>
-
-  <div class="main">
-
-    <div class="section-title"><span class="num">01</span> Network Overview</div>
-    <div class="kpi-grid" id="kpiGrid"></div>
-
-    <div class="section-title"><span class="num">02</span> Live Junction Map &amp; Signal Status</div>
-    <div class="grid2">
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">City Junction Map</div><div class="panel-tag">Leaflet.js · GPS</div></div>
-        <div id="map"></div>
-      </div>
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">AI Signal Control</div><div class="panel-tag">YOLOv8 + RL Optimizer</div></div>
-        <div class="signal-list" id="signalList"></div>
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🚦</div>
+      <div class="logo-text">
+        <span class="logo-title">STMS</span>
+        <span class="logo-sub">Traffic Control</span>
       </div>
     </div>
 
-    <div class="section-title"><span class="num">03</span> Emergency Vehicle Priority</div>
-    <div class="panel">
-      <div id="emergencyBanner"></div>
-      <canvas id="emergencyChart" height="60"></canvas>
-    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="dashboard" onclick="showSection('dashboard', this)">
+        <span class="nav-icon">⬛</span> Dashboard
+      </a>
+      <a href="#" class="nav-item" data-section="signals" onclick="showSection('signals', this)">
+        <span class="nav-icon">🚥</span> Signal Control
+      </a>
+      <a href="#" class="nav-item" data-section="analytics" onclick="showSection('analytics', this)">
+        <span class="nav-icon">📊</span> Analytics
+      </a>
+      <a href="#" class="nav-item" data-section="map" onclick="showSection('map', this)">
+        <span class="nav-icon">🗺️</span> Live Map
+      </a>
+      <a href="#" class="nav-item" data-section="emergency" onclick="showSection('emergency', this)">
+        <span class="nav-icon">🚨</span> Emergency
+      </a>
+      <a href="#" class="nav-item" data-section="reports" onclick="showSection('reports', this)">
+        <span class="nav-icon">📋</span> Reports
+      </a>
+    </nav>
 
-    <div class="section-title"><span class="num">04</span> Congestion Prediction &amp; Vehicle Detection</div>
-    <div class="grid2">
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">6-Hour Congestion Forecast (ML Model)</div><div class="panel-tag">Random Forest Regressor</div></div>
-        <canvas id="forecastChart" height="160"></canvas>
+    <div class="sidebar-status">
+      <div class="status-dot active"></div>
+      <span>System Online</span>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+        <div class="page-title" id="page-title">Dashboard Overview</div>
       </div>
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">Live Vehicle Count by Junction</div><div class="panel-tag">CV Detection</div></div>
-        <canvas id="vehicleChart" height="160"></canvas>
-      </div>
-    </div>
-
-    <div class="section-title"><span class="num">05</span> Smart Parking Management</div>
-    <div class="grid3" id="parkingGrid"></div>
-
-    <div class="section-title"><span class="num">06</span> Automatic Violation Detection (ANPR)</div>
-    <div class="panel">
-      <table>
-        <thead><tr><th>Time</th><th>Junction</th><th>Plate No.</th><th>Violation</th><th>Fine</th><th>Status</th></tr></thead>
-        <tbody id="violationTable"></tbody>
-      </table>
-    </div>
-
-    <div class="section-title"><span class="num">07</span> Pollution &amp; Noise Monitoring</div>
-    <div class="grid2">
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">City Air Quality Index</div><div class="panel-tag">MQ135 · PM2.5</div></div>
-        <div class="aqi-row">
-          <div class="gauge"><div class="gauge-val" id="aqiVal">—</div></div>
-          <div class="aqi-list" id="aqiList"></div>
+      <div class="topbar-right">
+        <div class="live-clock" id="live-clock">00:00:00</div>
+        <div class="topbar-location">📍 Mayiladuthurai City</div>
+        <div class="alert-bell" onclick="toggleAlerts()">
+          🔔 <span class="bell-badge" id="alert-count">3</span>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-head"><div class="panel-title">24-Hour Emission Trend</div><div class="panel-tag">CO₂ · PM2.5 · Noise(dB)</div></div>
-        <canvas id="pollutionChart" height="160"></canvas>
-      </div>
+    </header>
+
+    <!-- ALERT PANEL -->
+    <div class="alert-panel" id="alert-panel" style="display:none;">
+      <div class="alert-header">Live Alerts</div>
+      <div class="alert-item red">🚨 Emergency vehicle detected on NH-45 — signal cleared</div>
+      <div class="alert-item yellow">⚠️ High density detected at Bazaar Road junction</div>
+      <div class="alert-item blue">ℹ️ Signal cycle updated for Gandhi Road — evening peak</div>
     </div>
 
-  </div>
-</div>
+    <!-- ===== DASHBOARD SECTION ===== -->
+    <section id="section-dashboard" class="section active">
 
-<footer>Smart Traffic Management System — AI &amp; IoT Final Year Project · Frontend: HTML5 / CSS3 / JavaScript / Chart.js / Leaflet.js · Connects to Flask REST API backend</footer>
-
-<script>
-/* ============================================================
-   MOCK REAL-TIME DATA LAYER
-   In production this is replaced by fetch() calls to the Flask
-   REST API (see /api/junctions, /api/signals, /api/emergency,
-   /api/parking, /api/violations, /api/pollution, /api/forecast)
-   ============================================================ */
-
-const junctions = [
-  {id:"J1", name:"Mayiladuthurai Main Bazaar", lat:11.1041, lng:79.6517, vehicles:42, phase:"green", timer:18},
-  {id:"J2", name:"Tharangambadi Road Junction", lat:11.1100, lng:79.6450, vehicles:65, phase:"red", timer:9},
-  {id:"J3", name:"Railway Station Crossing", lat:11.1005, lng:79.6580, vehicles:30, phase:"amber", timer:4},
-  {id:"J4", name:"Government Hospital Junction", lat:11.0980, lng:79.6490, vehicles:54, phase:"green", timer:22},
-];
-
-function clock(){
-  const d = new Date();
-  document.getElementById('clock').textContent = d.toLocaleTimeString('en-IN', {hour12:false});
-}
-setInterval(clock, 1000); clock();
-
-/* ---------- KPI cards ---------- */
-const kpiData = [
-  {label:"Active Junctions", value:"12", delta:"+0 since last hr", color:"var(--blue)"},
-  {label:"Vehicles Detected / min", value:"187", delta:"▲ 6.2%", color:"var(--green)"},
-  {label:"Avg. Wait Time", value:"38s", delta:"▼ 4s improved", color:"var(--green)"},
-  {label:"Active Emergency Routes", value:"1", delta:"Priority granted", color:"var(--red)"},
-  {label:"Free Parking Slots", value:"126 / 240", delta:"52% available", color:"var(--amber)"},
-  {label:"City AQI", value:"118", delta:"Moderate", color:"var(--amber)"},
-];
-const kpiGrid = document.getElementById('kpiGrid');
-kpiData.forEach(k=>{
-  const el = document.createElement('div');
-  el.className = 'kpi';
-  el.style.setProperty('--kc', k.color);
-  el.innerHTML = `<div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div><div class="kpi-delta">${k.delta}</div>`;
-  kpiGrid.appendChild(el);
-});
-
-/* ---------- Map ---------- */
-const map = L.map('map', {zoomControl:false}).setView([11.1030, 79.6510], 14);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
-const colorFor = p => p==='green' ? '#2ECC71' : p==='amber' ? '#FFB020' : '#FF4D5E';
-junctions.forEach(j=>{
-  L.circleMarker([j.lat, j.lng], {radius:10, color:colorFor(j.phase), fillColor:colorFor(j.phase), fillOpacity:0.7, weight:2})
-    .addTo(map).bindPopup(`<b>${j.name}</b><br>Vehicles: ${j.vehicles}<br>Phase: ${j.phase.toUpperCase()}`);
-});
-
-/* ---------- Signal cards ---------- */
-function renderSignals(){
-  const list = document.getElementById('signalList');
-  list.innerHTML = '';
-  junctions.forEach(j=>{
-    const card = document.createElement('div');
-    card.className = 'signal-card';
-    card.innerHTML = `
-      <div class="light-housing">
-        <div class="bulb ${j.phase==='red'?'on red':''}"></div>
-        <div class="bulb ${j.phase==='amber'?'on amber':''}"></div>
-        <div class="bulb ${j.phase==='green'?'on green':''}"></div>
+      <!-- KPI CARDS -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Active Intersections</div>
+          <div class="kpi-value" id="kpi-intersections">12</div>
+          <div class="kpi-trend up">↑ All operational</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Vehicles / Hour</div>
+          <div class="kpi-value" id="kpi-vehicles">2,847</div>
+          <div class="kpi-trend up">↑ +12% vs yesterday</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg Wait Time</div>
+          <div class="kpi-value" id="kpi-wait">38s</div>
+          <div class="kpi-trend down">↓ -8s optimized</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Congestion Level</div>
+          <div class="kpi-value" id="kpi-congestion">Moderate</div>
+          <div class="kpi-trend yellow">● 3 zones affected</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Emergency Events</div>
+          <div class="kpi-value" id="kpi-emergency">1</div>
+          <div class="kpi-trend red">🚨 Active corridor</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Signals Optimized</div>
+          <div class="kpi-value" id="kpi-optimized">9 / 12</div>
+          <div class="kpi-trend up">↑ AI-managed</div>
+        </div>
       </div>
-      <div class="signal-info">
-        <div class="signal-name">${j.name} <span class="ai-badge">AI-OPT</span></div>
-        <div class="signal-meta">${j.id} · ${j.vehicles} vehicles queued</div>
+
+      <!-- DASHBOARD LOWER GRID -->
+      <div class="dash-grid">
+        <!-- Traffic Flow Chart -->
+        <div class="card chart-card">
+          <div class="card-header">
+            <span>Traffic Flow — Today</span>
+            <span class="card-badge live">LIVE</span>
+          </div>
+          <canvas id="trafficFlowChart" height="140"></canvas>
+        </div>
+
+        <!-- Lane Density -->
+        <div class="card">
+          <div class="card-header">
+            <span>Lane Density — Real Time</span>
+          </div>
+          <div class="lane-list" id="lane-list">
+            <!-- filled by JS -->
+          </div>
+        </div>
+
+        <!-- Signal Status Grid -->
+        <div class="card">
+          <div class="card-header"><span>Junction Signal Status</span></div>
+          <div class="signal-mini-grid" id="signal-mini-grid">
+            <!-- filled by JS -->
+          </div>
+        </div>
+
+        <!-- Vehicle Type Breakdown -->
+        <div class="card chart-card-sm">
+          <div class="card-header"><span>Vehicle Type Mix</span></div>
+          <canvas id="vehicleTypeChart" height="160"></canvas>
+        </div>
       </div>
-      <div class="signal-timer">${j.timer}s</div>`;
-    list.appendChild(card);
-  });
-}
-renderSignals();
+    </section>
 
-setInterval(()=>{
-  junctions.forEach(j=>{
-    j.timer -= 1;
-    j.vehicles = Math.max(5, j.vehicles + Math.round((Math.random()-0.5)*6));
-    if(j.timer <= 0){
-      j.phase = j.phase==='green' ? 'amber' : j.phase==='amber' ? 'red' : 'green';
-      j.timer = j.phase==='green' ? (18 + Math.round(Math.random()*10)) : j.phase==='amber' ? 4 : (10 + Math.round(Math.random()*8));
-    }
-  });
-  renderSignals();
-}, 1000);
+    <!-- ===== SIGNAL CONTROL SECTION ===== -->
+    <section id="section-signals" class="section">
+      <div class="signal-control-header">
+        <h2>Traffic Signal Control Panel</h2>
+        <div class="control-buttons">
+          <button class="btn btn-primary" onclick="autoOptimizeAll()">⚡ Auto-Optimize All</button>
+          <button class="btn btn-danger" onclick="emergencyOverride()">🚨 Emergency Override</button>
+        </div>
+      </div>
 
-/* ---------- Ticker ---------- */
-const tickerMessages = [
-  "🚑 Ambulance AMB-104 granted green corridor on Tharangambadi Road",
-  "⚠️ Minor collision reported near Railway Station Crossing — units dispatched",
-  "🅿️ Town Hall Parking Lot now 80% occupied",
-  "📷 Helmet violation detected — TN-66-AX-2310 — e-challan issued",
-  "🌫️ AQI rising near Main Bazaar — 132 (Moderate)",
-  "🚦 Signal cycle auto-optimized at Govt. Hospital Junction — wait time reduced 12%",
-];
-document.getElementById('tickerText').innerHTML = tickerMessages.join(' &nbsp;&nbsp;•&nbsp;&nbsp; ');
+      <div class="junction-grid" id="junction-grid">
+        <!-- filled by JS -->
+      </div>
+    </section>
 
-/* ---------- Emergency banner ---------- */
-document.getElementById('emergencyBanner').innerHTML = `
-  <div class="emergency-banner">
-    <div class="pin">🚑</div>
-    <div style="flex:1">
-      <h4>Ambulance AMB-104 en route to Government Hospital</h4>
-      <p>Current location: Tharangambadi Rd Junction (J2) &nbsp;|&nbsp; ETA: 4 min 20 sec &nbsp;|&nbsp; Green corridor: J2 → J4 active</p>
-      <div class="route-progress"><div></div></div>
-    </div>
-  </div>`;
+    <!-- ===== ANALYTICS SECTION ===== -->
+    <section id="section-analytics" class="section">
+      <h2>Traffic Analytics</h2>
+      <div class="analytics-grid">
+        <div class="card chart-card-lg">
+          <div class="card-header"><span>Weekly Traffic Volume</span></div>
+          <canvas id="weeklyChart" height="120"></canvas>
+        </div>
+        <div class="card chart-card-lg">
+          <div class="card-header"><span>Hourly Peak Distribution</span></div>
+          <canvas id="hourlyChart" height="120"></canvas>
+        </div>
+        <div class="card chart-card-lg">
+          <div class="card-header"><span>Congestion Heatmap (by Hour)</span></div>
+          <canvas id="congestionChart" height="120"></canvas>
+        </div>
+        <div class="card chart-card-lg">
+          <div class="card-header"><span>Signal Efficiency Score</span></div>
+          <canvas id="efficiencyChart" height="120"></canvas>
+        </div>
+      </div>
+    </section>
 
-new Chart(document.getElementById('emergencyChart'), {
-  type:'bar',
-  data:{labels:['J1','J2 (current)','J3','J4 (dest.)'],
-    datasets:[{label:'Signal override priority level', data:[1,3,1,3], backgroundColor:['#23304D','#FF4D5E','#23304D','#2ECC71'], borderRadius:6}]},
-  options:{plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
+    <!-- ===== MAP SECTION ===== -->
+    <section id="section-map" class="section">
+      <h2>Live Traffic Map — Mayiladuthurai</h2>
+      <div class="map-wrapper">
+        <div id="traffic-map"></div>
+        <div class="map-legend">
+          <div class="legend-item"><span class="dot green"></span> Clear</div>
+          <div class="legend-item"><span class="dot yellow"></span> Moderate</div>
+          <div class="legend-item"><span class="dot red"></span> Congested</div>
+          <div class="legend-item"><span class="dot blue"></span> Emergency</div>
+        </div>
+      </div>
+    </section>
 
-/* ---------- Forecast chart ---------- */
-new Chart(document.getElementById('forecastChart'), {
-  type:'line',
-  data:{labels:['Now','+1h','+2h','+3h','+4h','+5h','+6h'],
-    datasets:[
-      {label:'Main Bazaar', data:[42,55,78,62,40,35,48], borderColor:'#3DA8F5', backgroundColor:'rgba(61,168,245,0.12)', tension:0.4, fill:true},
-      {label:'Tharangambadi Rd', data:[65,70,60,52,46,55,63], borderColor:'#FFB020', backgroundColor:'rgba(255,176,32,0.1)', tension:0.4, fill:true},
-    ]},
-  options:{plugins:{legend:{labels:{color:'#E7ECF7'}}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
+    <!-- ===== EMERGENCY SECTION ===== -->
+    <section id="section-emergency" class="section">
+      <h2>Emergency Vehicle Priority</h2>
+      <div class="emergency-top">
+        <div class="card emergency-status-card">
+          <div class="card-header"><span>🚨 Active Emergency Corridors</span></div>
+          <div id="emergency-corridors">
+            <div class="corridor-item active">
+              <span class="corridor-badge">ACTIVE</span>
+              <span>Ambulance — NH-45 → Government Hospital</span>
+              <span class="corridor-eta">ETA: 4 min</span>
+            </div>
+          </div>
+          <button class="btn btn-danger mt" onclick="triggerEmergency()">Trigger New Emergency</button>
+        </div>
+        <div class="card">
+          <div class="card-header"><span>Cleared Corridors Today</span></div>
+          <div class="cleared-list" id="cleared-list">
+            <div class="cleared-item">🚑 Ambulance — Big Road → Hospital — 10:22 AM — 3m 12s</div>
+            <div class="cleared-item">🚒 Fire Truck — Bazaar Rd → Site — 08:45 AM — 5m 00s</div>
+          </div>
+        </div>
+      </div>
+      <div class="card mt">
+        <div class="card-header"><span>Emergency Detection Log</span></div>
+        <div class="log-list" id="emergency-log">
+          <div class="log-entry"><span class="log-time">14:32:10</span> Emergency vehicle detected at NH-45 Junction — signal priority activated</div>
+          <div class="log-entry"><span class="log-time">10:22:04</span> Ambulance corridor cleared — Gandhi Road to Hospital</div>
+          <div class="log-entry"><span class="log-time">08:45:31</span> Fire truck priority — Bazaar Road junction override</div>
+        </div>
+      </div>
+    </section>
 
-/* ---------- Vehicle count chart ---------- */
-const vehicleChart = new Chart(document.getElementById('vehicleChart'), {
-  type:'bar',
-  data:{labels: junctions.map(j=>j.id),
-    datasets:[{label:'Vehicles detected (live)', data: junctions.map(j=>j.vehicles), backgroundColor:'#9B7BFF', borderRadius:6}]},
-  options:{plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
-setInterval(()=>{ vehicleChart.data.datasets[0].data = junctions.map(j=>j.vehicles); vehicleChart.update(); }, 2000);
+    <!-- ===== REPORTS SECTION ===== -->
+    <section id="section-reports" class="section">
+      <h2>Traffic Reports</h2>
+      <div class="reports-controls">
+        <select id="report-range" class="select-input">
+          <option>Today</option>
+          <option>This Week</option>
+          <option>This Month</option>
+        </select>
+        <button class="btn btn-primary" onclick="generateReport()">📊 Generate Report</button>
+        <button class="btn btn-outline" onclick="downloadReport()">⬇️ Download CSV</button>
+      </div>
+      <div class="card mt">
+        <table class="report-table" id="report-table">
+          <thead>
+            <tr>
+              <th>Junction</th>
+              <th>Vehicles</th>
+              <th>Avg Wait (s)</th>
+              <th>Peak Hour</th>
+              <th>Congestion</th>
+              <th>Signal Efficiency</th>
+            </tr>
+          </thead>
+          <tbody id="report-tbody">
+            <!-- filled by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-/* ---------- Parking ---------- */
-const lots = [
-  {name:"Town Hall Parking", total:40, occ:32},
-  {name:"Railway Station Lot", total:60, occ:18},
-  {name:"Hospital Visitor Parking", total:30, occ:24},
-];
-const pg = document.getElementById('parkingGrid');
-lots.forEach(l=>{
-  const wrap = document.createElement('div');
-  wrap.className = 'panel';
-  const slotsHtml = Array.from({length:l.total}).map((_,i)=>`<div class="slot ${i<l.occ?'occ':''}"></div>`).join('');
-  wrap.innerHTML = `
-    <div class="lot-card" style="background:transparent;border:none;padding:0;">
-      <div class="lot-head"><h5>${l.name}</h5><div class="lot-avail">${l.total-l.occ} free / ${l.total}</div></div>
-      <div class="slot-grid">${slotsHtml}</div>
-    </div>`;
-  pg.appendChild(wrap);
-});
+  </main>
 
-/* ---------- Violations table ---------- */
-const violations = [
-  {time:"14:02:11", junc:"J1", plate:"TN-66-AX-2310", type:"No Helmet", fine:"₹500", status:"amber"},
-  {time:"13:55:40", junc:"J2", plate:"TN-45-BZ-7781", type:"Signal Jump", fine:"₹1000", status:"red"},
-  {time:"13:48:02", junc:"J4", plate:"TN-30-CD-1190", type:"Overspeeding (68 km/h)", fine:"₹1500", status:"red"},
-  {time:"13:30:55", junc:"J3", plate:"TN-66-EF-4456", type:"Triple Riding", fine:"₹1000", status:"violet"},
-  {time:"13:12:18", junc:"J1", plate:"TN-21-GH-3321", type:"No Helmet", fine:"₹500", status:"amber"},
-];
-const vt = document.getElementById('violationTable');
-violations.forEach(v=>{
-  const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${v.time}</td><td>${v.junc}</td><td>${v.plate}</td><td>${v.type}</td><td>${v.fine}</td><td><span class="badge ${v.status}">E-Challan Sent</span></td>`;
-  vt.appendChild(tr);
-});
-
-/* ---------- Pollution / AQI ---------- */
-document.getElementById('aqiVal').textContent = "118";
-document.getElementById('aqiList').innerHTML = `
-  <div class="aqi-item">PM2.5 <b>64 µg/m³</b></div>
-  <div class="aqi-item">CO₂ <b>410 ppm</b></div>
-  <div class="aqi-item">Noise Level <b>71 dB</b></div>
-  <div class="aqi-item">Status <b style="color:var(--amber)">Moderate</b></div>`;
-
-new Chart(document.getElementById('pollutionChart'), {
-  type:'line',
-  data:{labels:['00','03','06','09','12','15','18','21'],
-    datasets:[
-      {label:'CO₂ (ppm/10)', data:[35,32,30,40,46,48,44,38], borderColor:'#3DA8F5', tension:0.4},
-      {label:'PM2.5', data:[40,38,42,55,64,68,60,50], borderColor:'#FF4D5E', tension:0.4},
-      {label:'Noise (dB)', data:[45,40,48,62,71,73,69,55], borderColor:'#FFB020', tension:0.4},
-    ]},
-  options:{plugins:{legend:{labels:{color:'#E7ECF7'}}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
-</script>
+  <script src="Script.js"></script>
 </body>
 </html>
