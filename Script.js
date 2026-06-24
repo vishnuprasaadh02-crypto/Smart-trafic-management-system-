@@ -1,199 +1,529 @@
-/* ============================================================
-   STMS DASHBOARD — CLIENT-SIDE LOGIC
-   Requires: Leaflet.js, Chart.js (loaded via CDN in dashboard.html)
-   Requires DOM ids: clock, cityPill, tickerText, kpiGrid, map,
-   signalList, emergencyBanner, emergencyChart, forecastChart,
-   vehicleChart, parkingGrid, violationTable, aqiVal, aqiList,
-   pollutionChart  (see dashboard.html markup)
+import { useState, useEffect, useRef, useCallback } from "react";
 
-   MOCK REAL-TIME DATA LAYER
-   Everything below is simulated client-side so the dashboard is
-   fully demo-able with zero backend. In production, replace the
-   mock arrays / setInterval blocks with fetch() calls to the
-   Flask REST API:
-     GET  /api/junctions        -> live junction + signal state
-     GET  /api/emergency/active -> active emergency vehicle routes
-     GET  /api/parking          -> lot occupancy
-     GET  /api/violations       -> recent ANPR violation feed
-     GET  /api/pollution        -> latest AQI / CO2 / PM2.5 / noise
-     GET  /api/forecast         -> ML congestion forecast (next 6h)
-   A WebSocket (Flask-SocketIO) channel `/live` is recommended for
-   true real-time push instead of polling.
-   ============================================================ */
+// ── Design tokens ──────────────────────────────────────────────────────────
+// Palette: deep asphalt background, neon signal greens/reds, amber accents
+// Typography: JetBrains Mono for data (feels like a real control room), Inter for UI
+// Signature: animated "pulse ring" on the active green signal, like a real traffic camera feed
 
-const junctions = [
-  {id:"J1", name:"Mayiladuthurai Main Bazaar", lat:11.1041, lng:79.6517, vehicles:42, phase:"green", timer:18},
-  {id:"J2", name:"Tharangambadi Road Junction", lat:11.1100, lng:79.6450, vehicles:65, phase:"red", timer:9},
-  {id:"J3", name:"Railway Station Crossing", lat:11.1005, lng:79.6580, vehicles:30, phase:"amber", timer:4},
-  {id:"J4", name:"Government Hospital Junction", lat:11.0980, lng:79.6490, vehicles:54, phase:"green", timer:22},
-];
+const ROADS = ["North", "South", "East", "West"];
 
-function clock(){
-  const d = new Date();
-  document.getElementById('clock').textContent = d.toLocaleTimeString('en-IN', {hour12:false});
-}
-setInterval(clock, 1000); clock();
+const ROAD_ANGLES = { North: 270, South: 90, East: 0, West: 180 };
 
-/* ---------- KPI cards ---------- */
-const kpiData = [
-  {label:"Active Junctions", value:"12", delta:"+0 since last hr", color:"var(--blue)"},
-  {label:"Vehicles Detected / min", value:"187", delta:"▲ 6.2%", color:"var(--green)"},
-  {label:"Avg. Wait Time", value:"38s", delta:"▼ 4s improved", color:"var(--green)"},
-  {label:"Active Emergency Routes", value:"1", delta:"Priority granted", color:"var(--red)"},
-  {label:"Free Parking Slots", value:"126 / 240", delta:"52% available", color:"var(--amber)"},
-  {label:"City AQI", value:"118", delta:"Moderate", color:"var(--amber)"},
-];
-const kpiGrid = document.getElementById('kpiGrid');
-kpiData.forEach(k=>{
-  const el = document.createElement('div');
-  el.className = 'kpi';
-  el.style.setProperty('--kc', k.color);
-  el.innerHTML = `<div class="kpi-label">${k.label}</div><div class="kpi-value">${k.value}</div><div class="kpi-delta">${k.delta}</div>`;
-  kpiGrid.appendChild(el);
+const ROAD_COLORS = {
+  green: "#00FF87",
+  red: "#FF3B3B",
+  amber: "#FFB800",
+  dim: "#1E2830",
+};
+
+const initialDensity = () => ({
+  North: Math.floor(Math.random() * 35) + 5,
+  South: Math.floor(Math.random() * 35) + 5,
+  East: Math.floor(Math.random() * 35) + 5,
+  West: Math.floor(Math.random() * 35) + 5,
 });
 
-/* ---------- Map ---------- */
-const map = L.map('map', {zoomControl:false}).setView([11.1030, 79.6510], 14);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
-const colorFor = p => p==='green' ? '#2ECC71' : p==='amber' ? '#FFB020' : '#FF4D5E';
-junctions.forEach(j=>{
-  L.circleMarker([j.lat, j.lng], {radius:10, color:colorFor(j.phase), fillColor:colorFor(j.phase), fillOpacity:0.7, weight:2})
-    .addTo(map).bindPopup(`<b>${j.name}</b><br>Vehicles: ${j.vehicles}<br>Phase: ${j.phase.toUpperCase()}`);
-});
-
-/* ---------- Signal cards ---------- */
-function renderSignals(){
-  const list = document.getElementById('signalList');
-  list.innerHTML = '';
-  junctions.forEach(j=>{
-    const card = document.createElement('div');
-    card.className = 'signal-card';
-    card.innerHTML = `
-      <div class="light-housing">
-        <div class="bulb ${j.phase==='red'?'on red':''}"></div>
-        <div class="bulb ${j.phase==='amber'?'on amber':''}"></div>
-        <div class="bulb ${j.phase==='green'?'on green':''}"></div>
-      </div>
-      <div class="signal-info">
-        <div class="signal-name">${j.name} <span class="ai-badge">AI-OPT</span></div>
-        <div class="signal-meta">${j.id} · ${j.vehicles} vehicles queued</div>
-      </div>
-      <div class="signal-timer">${j.timer}s</div>`;
-    list.appendChild(card);
-  });
+function computeGreen(density) {
+  return ROADS.reduce((a, b) => (density[a] >= density[b] ? a : b));
 }
-renderSignals();
 
-setInterval(()=>{
-  junctions.forEach(j=>{
-    j.timer -= 1;
-    j.vehicles = Math.max(5, j.vehicles + Math.round((Math.random()-0.5)*6));
-    if(j.timer <= 0){
-      j.phase = j.phase==='green' ? 'amber' : j.phase==='amber' ? 'red' : 'green';
-      j.timer = j.phase==='green' ? (18 + Math.round(Math.random()*10)) : j.phase==='amber' ? 4 : (10 + Math.round(Math.random()*8));
-    }
-  });
-  renderSignals();
-}, 1000);
+function computeDuration(count) {
+  return Math.min(60, Math.max(15, count * 2));
+}
 
-/* ---------- Ticker ---------- */
-const tickerMessages = [
-  "🚑 Ambulance AMB-104 granted green corridor on Tharangambadi Road",
-  "⚠️ Minor collision reported near Railway Station Crossing — units dispatched",
-  "🅿️ Town Hall Parking Lot now 80% occupied",
-  "📷 Helmet violation detected — TN-66-AX-2310 — e-challan issued",
-  "🌫️ AQI rising near Main Bazaar — 132 (Moderate)",
-  "🚦 Signal cycle auto-optimized at Govt. Hospital Junction — wait time reduced 12%",
-];
-document.getElementById('tickerText').innerHTML = tickerMessages.join(' &nbsp;&nbsp;•&nbsp;&nbsp; ');
-
-/* ---------- Emergency banner ---------- */
-document.getElementById('emergencyBanner').innerHTML = `
-  <div class="emergency-banner">
-    <div class="pin">🚑</div>
-    <div style="flex:1">
-      <h4>Ambulance AMB-104 en route to Government Hospital</h4>
-      <p>Current location: Tharangambadi Rd Junction (J2) &nbsp;|&nbsp; ETA: 4 min 20 sec &nbsp;|&nbsp; Green corridor: J2 → J4 active</p>
-      <div class="route-progress"><div></div></div>
+function TrafficLight({ isGreen, pulse }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      {/* Red */}
+      <div style={{
+        width: 22, height: 22, borderRadius: "50%",
+        background: isGreen ? "#3a1010" : ROAD_COLORS.red,
+        boxShadow: isGreen ? "none" : `0 0 12px ${ROAD_COLORS.red}`,
+        transition: "all 0.4s"
+      }} />
+      {/* Amber */}
+      <div style={{
+        width: 22, height: 22, borderRadius: "50%",
+        background: "#2a2200",
+        transition: "all 0.4s"
+      }} />
+      {/* Green */}
+      <div style={{
+        width: 22, height: 22, borderRadius: "50%",
+        background: isGreen ? ROAD_COLORS.green : "#0a2010",
+        boxShadow: isGreen ? `0 0 18px ${ROAD_COLORS.green}` : "none",
+        transition: "all 0.4s",
+        position: "relative"
+      }}>
+        {isGreen && pulse && (
+          <div style={{
+            position: "absolute", inset: -6,
+            borderRadius: "50%",
+            border: `2px solid ${ROAD_COLORS.green}`,
+            animation: "pulse-ring 1.2s ease-out infinite",
+            opacity: 0.6
+          }} />
+        )}
+      </div>
     </div>
-  </div>`;
+  );
+}
 
-new Chart(document.getElementById('emergencyChart'), {
-  type:'bar',
-  data:{labels:['J1','J2 (current)','J3','J4 (dest.)'],
-    datasets:[{label:'Signal override priority level', data:[1,3,1,3], backgroundColor:['#23304D','#FF4D5E','#23304D','#2ECC71'], borderRadius:6}]},
-  options:{plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
+function RoadCard({ road, count, isGreen, onChange, emergencyActive }) {
+  const angle = ROAD_ANGLES[road];
+  const pct = Math.min(100, (count / 60) * 100);
+  const barColor = isGreen ? ROAD_COLORS.green : count > 40 ? ROAD_COLORS.red : "#3a4a5a";
 
-/* ---------- Forecast chart ---------- */
-new Chart(document.getElementById('forecastChart'), {
-  type:'line',
-  data:{labels:['Now','+1h','+2h','+3h','+4h','+5h','+6h'],
-    datasets:[
-      {label:'Main Bazaar', data:[42,55,78,62,40,35,48], borderColor:'#3DA8F5', backgroundColor:'rgba(61,168,245,0.12)', tension:0.4, fill:true},
-      {label:'Tharangambadi Rd', data:[65,70,60,52,46,55,63], borderColor:'#FFB020', backgroundColor:'rgba(255,176,32,0.1)', tension:0.4, fill:true},
-    ]},
-  options:{plugins:{legend:{labels:{color:'#E7ECF7'}}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
+  return (
+    <div style={{
+      background: isGreen ? "rgba(0,255,135,0.05)" : "rgba(255,255,255,0.03)",
+      border: `1px solid ${isGreen ? ROAD_COLORS.green : "#2a3a4a"}`,
+      borderRadius: 14,
+      padding: "18px 20px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 12,
+      transition: "all 0.4s",
+      boxShadow: isGreen ? `0 0 24px rgba(0,255,135,0.12)` : "none",
+      position: "relative",
+      overflow: "hidden"
+    }}>
+      {emergencyActive && (
+        <div style={{
+          position: "absolute", top: 0, right: 0,
+          background: "#FFB800", color: "#000",
+          fontSize: 10, fontWeight: 700, fontFamily: "Inter, sans-serif",
+          padding: "3px 8px", borderRadius: "0 14px 0 8px",
+          letterSpacing: 1
+        }}>🚨 PRIORITY</div>
+      )}
 
-/* ---------- Vehicle count chart ---------- */
-const vehicleChart = new Chart(document.getElementById('vehicleChart'), {
-  type:'bar',
-  data:{labels: junctions.map(j=>j.id),
-    datasets:[{label:'Vehicles detected (live)', data: junctions.map(j=>j.vehicles), backgroundColor:'#9B7BFF', borderRadius:6}]},
-  options:{plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
-setInterval(()=>{ vehicleChart.data.datasets[0].data = junctions.map(j=>j.vehicles); vehicleChart.update(); }, 2000);
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{
+            fontFamily: "Inter, sans-serif", fontWeight: 700,
+            fontSize: 15, color: isGreen ? ROAD_COLORS.green : "#c0cdd8",
+            letterSpacing: 0.5
+          }}>{road}</div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 26,
+            fontWeight: 700, color: "#fff", lineHeight: 1.1, marginTop: 2
+          }}>{count}
+            <span style={{ fontSize: 12, color: "#6b7f8e", marginLeft: 4, fontWeight: 400 }}>veh</span>
+          </div>
+        </div>
+        <TrafficLight isGreen={isGreen} pulse={true} />
+      </div>
 
-/* ---------- Parking ---------- */
-const lots = [
-  {name:"Town Hall Parking", total:40, occ:32},
-  {name:"Railway Station Lot", total:60, occ:18},
-  {name:"Hospital Visitor Parking", total:30, occ:24},
-];
-const pg = document.getElementById('parkingGrid');
-lots.forEach(l=>{
-  const wrap = document.createElement('div');
-  wrap.className = 'panel';
-  const slotsHtml = Array.from({length:l.total}).map((_,i)=>`<div class="slot ${i<l.occ?'occ':''}"></div>`).join('');
-  wrap.innerHTML = `
-    <div class="lot-card" style="background:transparent;border:none;padding:0;">
-      <div class="lot-head"><h5>${l.name}</h5><div class="lot-avail">${l.total-l.occ} free / ${l.total}</div></div>
-      <div class="slot-grid">${slotsHtml}</div>
-    </div>`;
-  pg.appendChild(wrap);
-});
+      {/* Density bar */}
+      <div style={{ background: "#1a2530", borderRadius: 4, height: 6, overflow: "hidden" }}>
+        <div style={{
+          width: `${pct}%`, height: "100%",
+          background: barColor,
+          borderRadius: 4,
+          transition: "width 0.6s ease, background 0.4s",
+          boxShadow: isGreen ? `0 0 8px ${ROAD_COLORS.green}` : "none"
+        }} />
+      </div>
 
-/* ---------- Violations table ---------- */
-const violations = [
-  {time:"14:02:11", junc:"J1", plate:"TN-66-AX-2310", type:"No Helmet", fine:"₹500", status:"amber"},
-  {time:"13:55:40", junc:"J2", plate:"TN-45-BZ-7781", type:"Signal Jump", fine:"₹1000", status:"red"},
-  {time:"13:48:02", junc:"J4", plate:"TN-30-CD-1190", type:"Overspeeding (68 km/h)", fine:"₹1500", status:"red"},
-  {time:"13:30:55", junc:"J3", plate:"TN-66-EF-4456", type:"Triple Riding", fine:"₹1000", status:"violet"},
-  {time:"13:12:18", junc:"J1", plate:"TN-21-GH-3321", type:"No Helmet", fine:"₹500", status:"amber"},
-];
-const vt = document.getElementById('violationTable');
-violations.forEach(v=>{
-  const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${v.time}</td><td>${v.junc}</td><td>${v.plate}</td><td>${v.type}</td><td>${v.fine}</td><td><span class="badge ${v.status}">E-Challan Sent</span></td>`;
-  vt.appendChild(tr);
-});
+      {/* Slider */}
+      <input
+        type="range" min={0} max={60} value={count}
+        onChange={e => onChange(road, Number(e.target.value))}
+        style={{ width: "100%", accentColor: isGreen ? ROAD_COLORS.green : "#3a6a8a", cursor: "pointer" }}
+      />
 
-/* ---------- Pollution / AQI ---------- */
-document.getElementById('aqiVal').textContent = "118";
-document.getElementById('aqiList').innerHTML = `
-  <div class="aqi-item">PM2.5 <b>64 µg/m³</b></div>
-  <div class="aqi-item">CO₂ <b>410 ppm</b></div>
-  <div class="aqi-item">Noise Level <b>71 dB</b></div>
-  <div class="aqi-item">Status <b style="color:var(--amber)">Moderate</b></div>`;
+      <div style={{
+        fontFamily: "Inter, sans-serif", fontSize: 11,
+        color: isGreen ? ROAD_COLORS.green : "#4a6070",
+        textTransform: "uppercase", letterSpacing: 1, fontWeight: 600,
+        display: "flex", alignItems: "center", gap: 6
+      }}>
+        <span style={{
+          width: 7, height: 7, borderRadius: "50%",
+          background: isGreen ? ROAD_COLORS.green : ROAD_COLORS.red,
+          display: "inline-block",
+          boxShadow: isGreen ? `0 0 6px ${ROAD_COLORS.green}` : "none"
+        }} />
+        {isGreen ? `GREEN — ${computeDuration(count)}s` : "RED — WAITING"}
+      </div>
+    </div>
+  );
+}
 
-new Chart(document.getElementById('pollutionChart'), {
-  type:'line',
-  data:{labels:['00','03','06','09','12','15','18','21'],
-    datasets:[
-      {label:'CO₂ (ppm/10)', data:[35,32,30,40,46,48,44,38], borderColor:'#3DA8F5', tension:0.4},
-      {label:'PM2.5', data:[40,38,42,55,64,68,60,50], borderColor:'#FF4D5E', tension:0.4},
-      {label:'Noise (dB)', data:[45,40,48,62,71,73,69,55], borderColor:'#FFB020', tension:0.4},
-    ]},
-  options:{plugins:{legend:{labels:{color:'#E7ECF7'}}}, scales:{y:{ticks:{color:'#8B97B5'}, grid:{color:'#1A2440'}}, x:{ticks:{color:'#8B97B5'}, grid:{display:false}}}}
-});
+function Intersection({ greenRoad, density }) {
+  const roadStyle = (road) => ({
+    position: "absolute",
+    background: greenRoad === road
+      ? `linear-gradient(${ROAD_ANGLES[road]}deg, transparent 40%, rgba(0,255,135,0.15) 100%)`
+      : "rgba(255,255,255,0.02)",
+    transition: "background 0.5s",
+  });
+
+  return (
+    <div style={{
+      position: "relative", width: 160, height: 160,
+      margin: "0 auto"
+    }}>
+      {/* Road lanes */}
+      {/* North */}
+      <div style={{
+        ...roadStyle("North"),
+        top: 0, left: "50%", transform: "translateX(-50%)",
+        width: 44, height: 58, borderRadius: "8px 8px 0 0"
+      }} />
+      {/* South */}
+      <div style={{
+        ...roadStyle("South"),
+        bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: 44, height: 58, borderRadius: "0 0 8px 8px"
+      }} />
+      {/* East */}
+      <div style={{
+        ...roadStyle("East"),
+        right: 0, top: "50%", transform: "translateY(-50%)",
+        width: 58, height: 44, borderRadius: "0 8px 8px 0"
+      }} />
+      {/* West */}
+      <div style={{
+        ...roadStyle("West"),
+        left: 0, top: "50%", transform: "translateY(-50%)",
+        width: 58, height: 44, borderRadius: "8px 0 0 8px"
+      }} />
+
+      {/* Center box */}
+      <div style={{
+        position: "absolute",
+        top: "50%", left: "50%",
+        transform: "translate(-50%,-50%)",
+        width: 68, height: 68,
+        background: "#0d1820",
+        border: `2px solid #1e2f3d`,
+        borderRadius: 8,
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        gap: 2
+      }}>
+        <div style={{ fontSize: 22 }}>🚦</div>
+        <div style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9, color: ROAD_COLORS.green, letterSpacing: 0.5
+        }}>{greenRoad?.toUpperCase().slice(0,1) || "--"}</div>
+      </div>
+
+      {/* Direction labels */}
+      {ROADS.map(r => {
+        const positions = {
+          North: { top: 4, left: "50%", transform: "translateX(-50%)" },
+          South: { bottom: 4, left: "50%", transform: "translateX(-50%)" },
+          East: { right: 4, top: "50%", transform: "translateY(-50%)" },
+          West: { left: 4, top: "50%", transform: "translateY(-50%)" },
+        };
+        return (
+          <div key={r} style={{
+            position: "absolute", ...positions[r],
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 9, fontWeight: 700,
+            color: greenRoad === r ? ROAD_COLORS.green : "#3a5060",
+            transition: "color 0.4s"
+          }}>{density[r]}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TimerRing({ duration, timeLeft }) {
+  const r = 34;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * (timeLeft / duration);
+
+  return (
+    <svg width={90} height={90} viewBox="0 0 90 90">
+      <circle cx={45} cy={45} r={r} fill="none" stroke="#1a2a36" strokeWidth={6} />
+      <circle
+        cx={45} cy={45} r={r} fill="none"
+        stroke={ROAD_COLORS.green} strokeWidth={6}
+        strokeLinecap="round"
+        strokeDasharray={`${dash} ${circ}`}
+        strokeDashoffset={0}
+        transform="rotate(-90 45 45)"
+        style={{ transition: "stroke-dasharray 0.9s linear" }}
+      />
+      <text x={45} y={49} textAnchor="middle"
+        fontFamily="'JetBrains Mono', monospace"
+        fontSize={17} fontWeight={700} fill="#fff">{timeLeft}s</text>
+    </svg>
+  );
+}
+
+export default function SmartTrafficSystem() {
+  const [density, setDensity] = useState(initialDensity);
+  const [greenRoad, setGreenRoad] = useState(null);
+  const [duration, setDuration] = useState(30);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [running, setRunning] = useState(false);
+  const [emergency, setEmergency] = useState(null); // road name or null
+  const [log, setLog] = useState([]);
+  const timerRef = useRef(null);
+
+  const addLog = useCallback((msg) => {
+    setLog(prev => [{ msg, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 11)]);
+  }, []);
+
+  const applySignal = useCallback((d, emg) => {
+    let chosen;
+    if (emg) {
+      chosen = emg;
+      addLog(`🚨 Emergency override → ${emg} PRIORITY`);
+    } else {
+      chosen = computeGreen(d);
+      addLog(`✅ GREEN → ${chosen} (${d[chosen]} vehicles)`);
+    }
+    const dur = computeDuration(d[chosen]);
+    setGreenRoad(chosen);
+    setDuration(dur);
+    setTimeLeft(dur);
+  }, [addLog]);
+
+  // Countdown
+  useEffect(() => {
+    if (!running) { clearInterval(timerRef.current); return; }
+    timerRef.current = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          // auto-rotate: slightly randomise density
+          setDensity(prev => {
+            const next = {};
+            ROADS.forEach(r => {
+              next[r] = Math.max(0, prev[r] + Math.floor(Math.random() * 14) - 5);
+            });
+            applySignal(next, null);
+            return next;
+          });
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [running, applySignal]);
+
+  const handleStart = () => {
+    if (!running) {
+      applySignal(density, emergency);
+      setRunning(true);
+    } else {
+      setRunning(false);
+      addLog("⏸ Simulation paused");
+    }
+  };
+
+  const handleSlider = (road, val) => {
+    setDensity(prev => {
+      const next = { ...prev, [road]: val };
+      if (running) applySignal(next, emergency);
+      return next;
+    });
+  };
+
+  const triggerEmergency = (road) => {
+    if (emergency === road) {
+      setEmergency(null);
+      addLog(`✅ Emergency cleared on ${road}`);
+      if (running) applySignal(density, null);
+    } else {
+      setEmergency(road);
+      addLog(`🚨 Ambulance on ${road}!`);
+      if (running) applySignal(density, road);
+    }
+  };
+
+  const totalVehicles = ROADS.reduce((s, r) => s + density[r], 0);
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #080f14; }
+        @keyframes pulse-ring {
+          0% { transform: scale(1); opacity: 0.7; }
+          100% { transform: scale(2.2); opacity: 0; }
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0d1820; }
+        ::-webkit-scrollbar-thumb { background: #2a3a4a; border-radius: 4px; }
+      `}</style>
+
+      <div style={{
+        minHeight: "100vh",
+        background: "#080f14",
+        padding: "28px 20px 40px",
+        fontFamily: "Inter, sans-serif",
+        color: "#fff"
+      }}>
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 10,
+            background: "rgba(0,255,135,0.08)",
+            border: "1px solid rgba(0,255,135,0.2)",
+            borderRadius: 40, padding: "6px 18px", marginBottom: 14
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: ROAD_COLORS.green, boxShadow: `0 0 8px ${ROAD_COLORS.green}`, display: "inline-block" }} />
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: ROAD_COLORS.green, letterSpacing: 2 }}>
+              {running ? "SYSTEM ONLINE" : "STANDBY"}
+            </span>
+          </div>
+          <h1 style={{
+            fontFamily: "Inter, sans-serif", fontWeight: 700,
+            fontSize: "clamp(22px, 5vw, 32px)", letterSpacing: -0.5,
+            background: `linear-gradient(135deg, #fff 30%, ${ROAD_COLORS.green})`,
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
+          }}>Smart Traffic Management</h1>
+          <p style={{ color: "#4a6070", fontSize: 13, marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>
+            AI-driven signal control · Mayiladuthurai City Grid
+          </p>
+        </div>
+
+        {/* Stats bar */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 10, marginBottom: 24, maxWidth: 560, margin: "0 auto 24px"
+        }}>
+          {[
+            { label: "Total Vehicles", value: totalVehicles },
+            { label: "Active Green", value: greenRoad || "—" },
+            { label: "Green Duration", value: running ? `${timeLeft}s` : "—" }
+          ].map(({ label, value }) => (
+            <div key={label} style={{
+              background: "rgba(255,255,255,0.03)", border: "1px solid #1e2f3d",
+              borderRadius: 10, padding: "12px 14px", textAlign: "center"
+            }}>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 20, fontWeight: 700, color: ROAD_COLORS.green }}>{value}</div>
+              <div style={{ fontSize: 10, color: "#4a6070", marginTop: 3, letterSpacing: 0.5, textTransform: "uppercase" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Main layout */}
+        <div style={{ maxWidth: 680, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
+
+          {/* Intersection + Timer */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 32,
+            background: "rgba(255,255,255,0.02)", border: "1px solid #1a2a36",
+            borderRadius: 16, padding: "24px 20px"
+          }}>
+            <Intersection greenRoad={greenRoad} density={density} />
+            <div style={{ textAlign: "center" }}>
+              <TimerRing duration={duration} timeLeft={timeLeft} />
+              <div style={{ fontSize: 11, color: "#4a6070", marginTop: 6, fontFamily: "'JetBrains Mono', monospace" }}>
+                {running ? "COUNTDOWN" : "PAUSED"}
+              </div>
+            </div>
+          </div>
+
+          {/* Road cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {ROADS.map(road => (
+              <RoadCard
+                key={road}
+                road={road}
+                count={density[road]}
+                isGreen={greenRoad === road}
+                onChange={handleSlider}
+                emergencyActive={emergency === road}
+              />
+            ))}
+          </div>
+
+          {/* Controls */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={handleStart} style={{
+              flex: 1, minWidth: 120,
+              background: running ? "#1a2a36" : ROAD_COLORS.green,
+              color: running ? "#c0cdd8" : "#000",
+              border: "none", borderRadius: 10,
+              padding: "13px 20px", fontWeight: 700, fontSize: 14,
+              fontFamily: "Inter, sans-serif", cursor: "pointer",
+              transition: "all 0.3s",
+              boxShadow: running ? "none" : `0 0 20px rgba(0,255,135,0.3)`
+            }}>
+              {running ? "⏸ Pause" : "▶ Start Simulation"}
+            </button>
+
+            <button onClick={() => {
+              const d = initialDensity();
+              setDensity(d);
+              if (running) applySignal(d, emergency);
+              addLog("🔄 Sensor data refreshed");
+            }} style={{
+              flex: 1, minWidth: 120,
+              background: "rgba(255,255,255,0.04)", color: "#c0cdd8",
+              border: "1px solid #2a3a4a", borderRadius: 10,
+              padding: "13px 20px", fontWeight: 600, fontSize: 14,
+              fontFamily: "Inter, sans-serif", cursor: "pointer"
+            }}>
+              🔄 Random Sensors
+            </button>
+          </div>
+
+          {/* Emergency panel */}
+          <div style={{
+            background: "rgba(255,184,0,0.04)", border: "1px solid rgba(255,184,0,0.2)",
+            borderRadius: 14, padding: "16px 18px"
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: ROAD_COLORS.amber, letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>
+              🚨 Emergency Vehicle Override
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {ROADS.map(r => (
+                <button key={r} onClick={() => triggerEmergency(r)} style={{
+                  background: emergency === r ? ROAD_COLORS.amber : "rgba(255,184,0,0.08)",
+                  color: emergency === r ? "#000" : ROAD_COLORS.amber,
+                  border: `1px solid ${emergency === r ? ROAD_COLORS.amber : "rgba(255,184,0,0.3)"}`,
+                  borderRadius: 8, padding: "7px 14px",
+                  fontWeight: 700, fontSize: 12,
+                  fontFamily: "Inter, sans-serif", cursor: "pointer",
+                  transition: "all 0.3s"
+                }}>
+                  {r} {emergency === r ? "✕" : "🚑"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Activity log */}
+          <div style={{
+            background: "rgba(255,255,255,0.02)", border: "1px solid #1a2a36",
+            borderRadius: 14, padding: "16px 18px"
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#3a5060", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>
+              System Log
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 160, overflowY: "auto" }}>
+              {log.length === 0 && (
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#2a3a4a" }}>
+                  Press Start to begin simulation...
+                </div>
+              )}
+              {log.map((entry, i) => (
+                <div key={i} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+                  color: i === 0 ? "#c0cdd8" : "#3a5060",
+                  transition: "color 0.5s"
+                }}>
+                  <span>{entry.msg}</span>
+                  <span style={{ color: "#2a3a4a", fontSize: 10 }}>{entry.time}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
